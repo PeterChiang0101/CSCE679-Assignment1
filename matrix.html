@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hong Kong Monthly Temperature Matrix View</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background-color: #f5f5f5;
+      }
+
+      .container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .title {
+        font-size: 24px;
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+
+      .toggle-btn {
+        padding: 10px 20px;
+        font-size: 14px;
+        cursor: pointer;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+
+      .toggle-btn:hover {
+        background-color: #45a049;
+      }
+
+      .tooltip {
+        position: absolute;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
+        padding: 10px;
+        border-radius: 5px;
+        font-size: 12px;
+        pointer-events: none;
+        z-index: 1000;
+      }
+
+      .cell {
+        stroke: #fff;
+        stroke-width: 2px;
+      }
+
+      .cell:hover {
+        stroke: #333;
+        stroke-width: 3px;
+      }
+
+      .max-line {
+        fill: none;
+        stroke: #2e7d32;
+        stroke-width: 1.5px;
+      }
+
+      .min-line {
+        fill: none;
+        stroke: #90caf9;
+        stroke-width: 1.5px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="title">Hong Kong Monthly Temperature Matrix View</div>
+      <button class="toggle-btn" id="toggleBtn">
+        Showing: Maximum Temperature
+      </button>
+      <div id="chart"></div>
+    </div>
+
+    <script>
+      // Configuration
+      const margin = { top: 50, right: 150, bottom: 50, left: 100 };
+      const cellWidth = 90;
+      const cellHeight = 55;
+      const months = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+
+      let showMax = true;
+
+      // Color scale (yellow to red/purple for temperature)
+      const colorScale = d3
+        .scaleSequential()
+        .domain([0, 40])
+        .interpolator(d3.interpolateYlOrRd);
+
+      // Load and process data
+      d3.csv("temperature_daily.csv").then(function (data) {
+        // Parse data
+        data.forEach((d) => {
+          d.date = new Date(d.date);
+          d.max_temperature = +d.max_temperature;
+          d.min_temperature = +d.min_temperature;
+          d.year = d.date.getFullYear();
+          d.month = d.date.getMonth();
+          d.day = d.date.getDate();
+        });
+
+        // Filter last 10 years (2008-2017)
+        const filteredData = data.filter(
+          (d) => d.year >= 2008 && d.year <= 2017,
+        );
+        const years = [...new Set(filteredData.map((d) => d.year))].sort();
+
+        // Group data by year and month
+        const groupedData = d3.group(
+          filteredData,
+          (d) => d.year,
+          (d) => d.month,
+        );
+
+        // Calculate monthly aggregates
+        const monthlyData = [];
+        years.forEach((year) => {
+          months.forEach((month, monthIndex) => {
+            const monthData = groupedData.get(year)?.get(monthIndex) || [];
+            if (monthData.length > 0) {
+              monthlyData.push({
+                year: year,
+                month: monthIndex,
+                monthName: month,
+                maxTemp: d3.max(monthData, (d) => d.max_temperature),
+                minTemp: d3.min(monthData, (d) => d.min_temperature),
+                avgMax: d3.mean(monthData, (d) => d.max_temperature),
+                avgMin: d3.mean(monthData, (d) => d.min_temperature),
+                dailyData: monthData.sort((a, b) => a.day - b.day),
+              });
+            }
+          });
+        });
+
+        // SVG setup
+        const width = years.length * cellWidth + margin.left + margin.right;
+        const height = 12 * cellHeight + margin.top + margin.bottom;
+
+        const svg = d3
+          .select("#chart")
+          .append("svg")
+          .attr("width", width)
+          .attr("height", height);
+
+        const g = svg
+          .append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Tooltip
+        const tooltip = d3
+          .select("body")
+          .append("div")
+          .attr("class", "tooltip")
+          .style("opacity", 0);
+
+        // X axis (years)
+        g.selectAll(".year-label")
+          .data(years)
+          .enter()
+          .append("text")
+          .attr("class", "year-label")
+          .attr("x", (d, i) => i * cellWidth + cellWidth / 2)
+          .attr("y", -10)
+          .attr("text-anchor", "middle")
+          .text((d) => d);
+
+        // Y axis (months)
+        g.selectAll(".month-label")
+          .data(months)
+          .enter()
+          .append("text")
+          .attr("class", "month-label")
+          .attr("x", -10)
+          .attr("y", (d, i) => i * cellHeight + cellHeight / 2)
+          .attr("text-anchor", "end")
+          .attr("dominant-baseline", "middle")
+          .text((d) => d);
+
+        // Create cells
+        const cells = g
+          .selectAll(".cell-group")
+          .data(monthlyData)
+          .enter()
+          .append("g")
+          .attr("class", "cell-group")
+          .attr("transform", (d) => {
+            const xIndex = years.indexOf(d.year);
+            return `translate(${xIndex * cellWidth},${d.month * cellHeight})`;
+          });
+
+        // Cell rectangles
+        cells
+          .append("rect")
+          .attr("class", "cell")
+          .attr("width", cellWidth - 4)
+          .attr("height", cellHeight - 4)
+          .attr("x", 2)
+          .attr("y", 2)
+          .attr("rx", 3)
+          .attr("fill", (d) => colorScale(showMax ? d.avgMax : d.avgMin))
+          .on("mouseover", function (event, d) {
+            tooltip.transition().duration(200).style("opacity", 0.9);
+            tooltip
+              .html(
+                `Date: ${d.year}-${String(d.month + 1).padStart(2, "0")}<br/>
+                                 Max: ${d.maxTemp}°C<br/>Min: ${d.minTemp}°C`,
+              )
+              .style("left", event.pageX + 10 + "px")
+              .style("top", event.pageY - 28 + "px");
+          })
+          .on("mouseout", function () {
+            tooltip.transition().duration(500).style("opacity", 0);
+          });
+
+        // Mini line charts
+        cells.each(function (d) {
+          const cell = d3.select(this);
+          const dailyData = d.dailyData;
+
+          if (dailyData.length === 0) return;
+
+          const xScale = d3
+            .scaleLinear()
+            .domain([1, 31])
+            .range([6, cellWidth - 10]);
+
+          const yScale = d3
+            .scaleLinear()
+            .domain([0, 40])
+            .range([cellHeight - 8, 6]);
+
+          // Max temperature line
+          const maxLine = d3
+            .line()
+            .x((dd) => xScale(dd.day))
+            .y((dd) => yScale(dd.max_temperature))
+            .curve(d3.curveMonotoneX);
+
+          // Min temperature line
+          const minLine = d3
+            .line()
+            .x((dd) => xScale(dd.day))
+            .y((dd) => yScale(dd.min_temperature))
+            .curve(d3.curveMonotoneX);
+
+          cell
+            .append("path")
+            .datum(dailyData)
+            .attr("class", "max-line")
+            .attr("d", maxLine);
+
+          cell
+            .append("path")
+            .datum(dailyData)
+            .attr("class", "min-line")
+            .attr("d", minLine);
+        });
+
+        // Legend
+        const legendWidth = 20;
+        const legendHeight = 200;
+        const legendX = years.length * cellWidth + 30;
+
+        const legendScale = d3
+          .scaleLinear()
+          .domain([0, 40])
+          .range([legendHeight, 0]);
+
+        const legendAxis = d3.axisRight(legendScale).ticks(5);
+
+        const defs = svg.append("defs");
+        const gradient = defs
+          .append("linearGradient")
+          .attr("id", "legend-gradient")
+          .attr("x1", "0%")
+          .attr("y1", "100%")
+          .attr("x2", "0%")
+          .attr("y2", "0%");
+
+        gradient
+          .selectAll("stop")
+          .data(d3.range(0, 1.1, 0.1))
+          .enter()
+          .append("stop")
+          .attr("offset", (d) => d * 100 + "%")
+          .attr("stop-color", (d) => colorScale(d * 40));
+
+        const legend = g
+          .append("g")
+          .attr("transform", `translate(${legendX}, 50)`);
+
+        legend
+          .append("rect")
+          .attr("width", legendWidth)
+          .attr("height", legendHeight)
+          .style("fill", "url(#legend-gradient)");
+
+        legend
+          .append("g")
+          .attr("transform", `translate(${legendWidth}, 0)`)
+          .call(legendAxis);
+
+        legend
+          .append("text")
+          .attr("x", legendWidth / 2)
+          .attr("y", -10)
+          .attr("text-anchor", "middle")
+          .style("font-size", "12px")
+          .text("°C");
+
+        // Toggle button functionality
+        d3.select("#toggleBtn").on("click", function () {
+          showMax = !showMax;
+          d3.select(this).text(
+            showMax
+              ? "Showing: Maximum Temperature"
+              : "Showing: Minimum Temperature",
+          );
+
+          cells
+            .selectAll("rect.cell")
+            .transition()
+            .duration(500)
+            .attr("fill", (d) => colorScale(showMax ? d.avgMax : d.avgMin));
+        });
+      });
+    </script>
+  </body>
+</html>
