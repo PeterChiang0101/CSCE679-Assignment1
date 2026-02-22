@@ -1,3 +1,7 @@
+# CSCE679 Data Visualization Assignment 1
+
+Preview: https://peterchiang0101.github.io/CSCE679-Assignment1/
+
 # Interaction log:
 
 ## Prompt:
